@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1
+
+FROM node:24-alpine AS deps
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@11.1.1 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+FROM node:24-alpine AS builder
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@11.1.1 --activate
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+ARG SITE_URL=https://anvilwiki.pages.dev
+ARG PUBLIC_AD_MOBILE_320X50=
+ARG PUBLIC_AD_SIDEBAR_160X300=
+ARG PUBLIC_AD_SIDEBAR_160X600=
+ARG PUBLIC_AD_BANNER_728X90=
+ARG PUBLIC_AD_BANNER_300X250=
+ARG PUBLIC_AD_BANNER_468X60=
+ARG PUBLIC_AD_NATIVE_BANNER=
+ARG PUBLIC_GOOGLE_ADSENSE_ID=
+ARG PUBLIC_GA_ID=
+ARG PUBLIC_GSC_VERIFICATION=
+
+ENV SITE_URL=${SITE_URL}
+ENV PUBLIC_AD_MOBILE_320X50=${PUBLIC_AD_MOBILE_320X50}
+ENV PUBLIC_AD_SIDEBAR_160X300=${PUBLIC_AD_SIDEBAR_160X300}
+ENV PUBLIC_AD_SIDEBAR_160X600=${PUBLIC_AD_SIDEBAR_160X600}
+ENV PUBLIC_AD_BANNER_728X90=${PUBLIC_AD_BANNER_728X90}
+ENV PUBLIC_AD_BANNER_300X250=${PUBLIC_AD_BANNER_300X250}
+ENV PUBLIC_AD_BANNER_468X60=${PUBLIC_AD_BANNER_468X60}
+ENV PUBLIC_AD_NATIVE_BANNER=${PUBLIC_AD_NATIVE_BANNER}
+ENV PUBLIC_GOOGLE_ADSENSE_ID=${PUBLIC_GOOGLE_ADSENSE_ID}
+ENV PUBLIC_GA_ID=${PUBLIC_GA_ID}
+ENV PUBLIC_GSC_VERIFICATION=${PUBLIC_GSC_VERIFICATION}
+
+RUN pnpm build
+
+FROM nginx:1.27-alpine AS runtime
+
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1

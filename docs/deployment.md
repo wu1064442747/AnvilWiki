@@ -10,7 +10,7 @@
 
 - 一个 [GitHub](https://github.com) 账号（免费）
 - 一个 [Cloudflare](https://cloudflare.com) 账号（免费）
-- 本地已安装 Node.js 20+ 和 pnpm
+- 本地已安装 Node.js 22+ 和 pnpm
 - 已经 fork 了 AnvilWiki 仓库并改好了配置层（见 [skinning.md](./skinning.md)）
 
 > 还没 fork？看 [快速开始](../README.md#5-分钟快速开始)。
@@ -61,7 +61,7 @@ Cloudflare 会自动检测 Astro，但请确认以下设置：
 
 | 变量名                    | 值                            | 说明                                   |
 | ------------------------- | ----------------------------- | -------------------------------------- |
-| `NODE_VERSION`            | `20`                          | 确保 Node 版本                         |
+| `NODE_VERSION`            | `22`                          | 确保 Node 版本                         |
 | `SITE_URL`                | `https://<project>.pages.dev` | **先用临时域名**，绑定自定义域名后再改 |
 | `PUBLIC_AD_MOBILE_320X50` | （你的 Adsterra key）         | 可选，留空则不显示广告                 |
 
@@ -173,6 +173,80 @@ AnvilWiki 是纯静态站点（`dist/`），可以部署到任何静态托管：
 
 ---
 
+## 方式四：Dokploy 拉取 GitHub 镜像（GHCR）
+
+适合已经用 Dokploy 管理服务器，想走固定链路：
+
+```text
+GitHub push → GitHub Actions 构建镜像 → GHCR → Dokploy 拉取镜像并重启
+```
+
+AnvilWiki 是 Astro 静态站。Docker 镜像会在构建阶段运行 `pnpm build`，再用 Nginx 服务 `dist/`。因此 `SITE_URL` 和 `PUBLIC_*` 变量需要配置在 **GitHub Actions 构建阶段**，不是容器启动阶段。
+
+### Step 1 — 配置 GitHub Actions 变量
+
+在 GitHub 仓库进入 **Settings → Secrets and variables → Actions**。
+
+Variables：
+
+| 名称 | 示例 | 说明 |
+| --- | --- | --- |
+| `SITE_URL` | `https://your-domain.wiki` | 站点最终域名，无尾斜杠 |
+
+Secrets（可选，留空即不渲染对应广告/统计）：
+
+| 名称 |
+| --- |
+| `PUBLIC_AD_MOBILE_320X50` |
+| `PUBLIC_AD_SIDEBAR_160X300` |
+| `PUBLIC_AD_SIDEBAR_160X600` |
+| `PUBLIC_AD_BANNER_728X90` |
+| `PUBLIC_AD_BANNER_300X250` |
+| `PUBLIC_AD_BANNER_468X60` |
+| `PUBLIC_AD_NATIVE_BANNER` |
+| `PUBLIC_GOOGLE_ADSENSE_ID` |
+| `PUBLIC_GA_ID` |
+| `PUBLIC_GSC_VERIFICATION` |
+
+### Step 2 — 发布 GHCR 镜像
+
+推送到 `main` 后，`.github/workflows/publish-ghcr.yml` 会发布：
+
+```text
+ghcr.io/wu1064442747/anvilwiki:main
+ghcr.io/wu1064442747/anvilwiki:git-<commit-sha>
+```
+
+如果包保持 private，Dokploy 需要 GHCR 读取权限。
+
+### Step 3 — 配置 Dokploy
+
+推荐方式：Dokploy 创建 **Application → Docker Registry / Docker Image**。
+
+| 字段 | 值 |
+| --- | --- |
+| Image | `ghcr.io/wu1064442747/anvilwiki:main` |
+| Registry URL | `ghcr.io` |
+| Username | GitHub 用户名 |
+| Password / Token | 有 `read:packages` 权限的 GitHub PAT |
+| Container Port / Target Port | `80` |
+| Health Check Path | `/health` |
+
+也可以用仓库里的 `dokploy-compose.yml` 创建 Compose 应用。镜像如果是 private，同样需要先在 Dokploy 或服务器 Docker 中配置 GHCR 登录。
+
+### Step 4 — 部署后验证
+
+```bash
+curl -I https://<你的域名>/
+curl -I https://<你的域名>/health
+curl https://<你的域名>/robots.txt
+curl https://<你的域名>/sitemap-index.xml
+```
+
+期望首页和 `/health` 返回 200，`robots.txt` 中的 Sitemap 使用你的 `SITE_URL` 域名。
+
+---
+
 ## 环境变量清单
 
 在 Pages → **Settings** → **Environment variables** 配置。支持 Production / Preview 两套。
@@ -180,7 +254,7 @@ AnvilWiki 是纯静态站点（`dist/`），可以部署到任何静态托管：
 | 变量                        | 必填 | 说明                                                   |
 | --------------------------- | ---- | ------------------------------------------------------ |
 | `SITE_URL`                  | ✅   | 站点绝对 URL（无尾斜杠），影响 sitemap/og:image/robots |
-| `NODE_VERSION`              | ✅   | 固定 `20`                                              |
+| `NODE_VERSION`              | ✅   | 固定 `22`                                              |
 | `PUBLIC_AD_MOBILE_320X50`   | 可选 | Adsterra 320×50 Sticky 广告 key                        |
 | `PUBLIC_AD_SIDEBAR_160X600` | 可选 | 侧边栏竖幅 key                                         |
 | `PUBLIC_AD_SIDEBAR_160X300` | 可选 | 侧边栏半高 key                                         |
@@ -190,6 +264,7 @@ AnvilWiki 是纯静态站点（`dist/`），可以部署到任何静态托管：
 | `PUBLIC_AD_NATIVE_BANNER`   | 可选 | Native banner key                                      |
 | `PUBLIC_GOOGLE_ADSENSE_ID`  | 可选 | AdSense 自动广告 ID                                    |
 | `PUBLIC_GA_ID`              | 可选 | Google Analytics ID                                    |
+| `PUBLIC_GSC_VERIFICATION`   | 可选 | Google Search Console 验证 meta 值                     |
 
 完整清单见 [`.env.example`](../.env.example)。所有广告变量**留空时对应广告位不渲染**——新手可以先不配广告把站上线，后续再加。
 
@@ -248,7 +323,7 @@ curl -I https://<你的域名>/privacy-policy/
 
 ### Q: 构建失败，报 `Cannot find module 'astro:content'`
 
-A: Cloudflare Pages 的 Node 版本可能不对。确认环境变量 `NODE_VERSION=20` 已配。
+A: Cloudflare Pages 的 Node 版本可能不对。确认环境变量 `NODE_VERSION=22` 已配。
 
 ### Q: 构建失败，报 `ERR_PNPM_IGNORED_BUILDS`
 
